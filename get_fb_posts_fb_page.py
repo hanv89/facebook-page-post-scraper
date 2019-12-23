@@ -2,23 +2,27 @@ import json
 import datetime
 import csv
 import time
+import requests
 try:
     from urllib.request import urlopen, Request
 except ImportError:
     from urllib2 import urlopen, Request
 
-app_id = "<FILL IN>"
-app_secret = "<FILL IN>"  # DO NOT SHARE WITH ANYONE!
-page_id = "cnn"
-
-# input date formatted as YYYY-MM-DD
-since_date = ""
-until_date = ""
-
-access_token = app_id + "|" + app_secret
-
-
 def request_until_succeed(url):
+    while True:
+        try:
+            print(url)
+            response = requests.get(url)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(e)
+            time.sleep(5)
+
+            print("Error for URL {}: {}".format(url, datetime.datetime.now()))
+            print("Retrying.")
+
+def request_until_succeed_old(url):
     req = Request(url)
     success = False
     while success is False:
@@ -48,9 +52,13 @@ def getFacebookPageFeedUrl(base_url):
 
     # Construct the URL string; see http://stackoverflow.com/a/37239851 for
     # Reactions parameters
-    fields = "&fields=message,link,created_time,type,name,id," + \
+    # fields = "&fields=message,link,created_time,type,name,id," + \
+    #     "comments.limit(0).summary(true),shares,reactions" + \
+    #     ".limit(0).summary(true)"
+
+    fields = "&fields=message,created_time,id," + \
         "comments.limit(0).summary(true),shares,reactions" + \
-        ".limit(0).summary(true)"
+        ".limit(0).summary(true),attachments{unshimmed_url,media_type,title}"
 
     return base_url + fields
 
@@ -66,7 +74,8 @@ def getReactionsForStatuses(base_url):
 
         url = base_url + fields
 
-        data = json.loads(request_until_succeed(url))['data']
+        # data = json.loads(request_until_succeed_old(url))['data']
+        data = request_until_succeed(url)['data']
 
         data_processed = set()  # set() removes rare duplicates in statuses
         for status in data:
@@ -92,14 +101,20 @@ def processFacebookPageFeedStatus(status):
     # so must check for existence first
 
     status_id = status['id']
-    status_type = status['type']
-
     status_message = '' if 'message' not in status else \
         unicode_decode(status['message'])
-    link_name = '' if 'name' not in status else \
-        unicode_decode(status['name'])
-    status_link = '' if 'link' not in status else \
-        unicode_decode(status['link'])
+    status_type = 'status'
+    link_name = ''
+    status_link = ''
+    attachments = status['attachments'].get('data',[])
+    if attachments:
+        attachment = attachments[0]
+        status_type = 'status' if 'media_type' not in attachment else \
+            attachment['media_type']
+        link_name = '' if 'title' not in attachment else \
+            unicode_decode(attachment['title'])
+        status_link = '' if 'unshimmed_url' not in attachment else \
+            unicode_decode(attachment['unshimmed_url'])
 
     # Time needs special care since a) it's in UTC and
     # b) it's not easy to use in statistical programs.
@@ -136,7 +151,7 @@ def scrapeFacebookPageFeedStatus(page_id, access_token, since_date, until_date):
         num_processed = 0
         scrape_starttime = datetime.datetime.now()
         after = ''
-        base = "https://graph.facebook.com/v2.9"
+        base = "https://graph.facebook.com/v5.0"
         node = "/{}/posts".format(page_id)
         parameters = "/?limit={}&access_token={}".format(100, access_token)
         since = "&since={}".format(since_date) if since_date \
@@ -151,7 +166,9 @@ def scrapeFacebookPageFeedStatus(page_id, access_token, since_date, until_date):
             base_url = base + node + parameters + after + since + until
 
             url = getFacebookPageFeedUrl(base_url)
-            statuses = json.loads(request_until_succeed(url))
+
+            # data = json.loads(request_until_succeed_old(url))
+            statuses = request_until_succeed(url)
             reactions = getReactionsForStatuses(base_url)
 
             for status in statuses['data']:

@@ -2,19 +2,31 @@ import json
 import datetime
 import csv
 import time
+import requests
 try:
     from urllib.request import urlopen, Request
 except ImportError:
     from urllib2 import urlopen, Request
 
-app_id = "<FILL IN>"
-app_secret = "<FILL IN>"  # DO NOT SHARE WITH ANYONE!
-file_id = "cnn"
-
-access_token = app_id + "|" + app_secret
-
 
 def request_until_succeed(url):
+    while True:
+        try:
+            print(url)
+            response = requests.get(url)
+            response_json = response.json()
+            # print(response)
+            # print(response_json)
+            if response.status_code == 200:
+                return response_json
+        except Exception as e:
+            print(e)
+            time.sleep(5)
+
+            print("Error for URL {}: {}".format(url, datetime.datetime.now()))
+            print("Retrying.")
+
+def request_until_succeed_old(url):
     req = Request(url)
     success = False
     while success is False:
@@ -62,7 +74,8 @@ def getReactionsForComments(base_url):
 
         url = base_url + fields
 
-        data = json.loads(request_until_succeed(url))['data']
+        # data = json.loads(request_until_succeed_old(url))['data']
+        data = request_until_succeed(url)['data']
 
         data_processed = set()  # set() removes rare duplicates in statuses
         for status in data:
@@ -90,7 +103,8 @@ def processFacebookComment(comment, status_id, parent_id=''):
     comment_id = comment['id']
     comment_message = '' if 'message' not in comment or comment['message'] \
         is '' else unicode_decode(comment['message'])
-    comment_author = unicode_decode(comment['from']['name'])
+    comment_author = 'unknown' if 'from' not in comment else \
+        unicode_decode(comment['from']['name'])
     num_reactions = 0 if 'reactions' not in comment else \
         comment['reactions']['summary']['total_count']
 
@@ -115,10 +129,10 @@ def processFacebookComment(comment, status_id, parent_id=''):
 
     return (comment_id, status_id, parent_id, comment_message, comment_author,
             comment_published, num_reactions)
-
+ 
 
 def scrapeFacebookPageFeedComments(page_id, access_token):
-    with open('{}_facebook_comments.csv'.format(file_id), 'w') as file:
+    with open('{}_facebook_comments_1.csv'.format(file_id), 'w') as file:
         w = csv.writer(file)
         w.writerow(["comment_id", "status_id", "parent_id", "comment_message",
                     "comment_author", "comment_published", "num_reactions",
@@ -128,18 +142,18 @@ def scrapeFacebookPageFeedComments(page_id, access_token):
         num_processed = 0
         scrape_starttime = datetime.datetime.now()
         after = ''
-        base = "https://graph.facebook.com/v2.9"
+        base = "https://graph.facebook.com/v5.0"
         parameters = "/?limit={}&access_token={}".format(
             100, access_token)
 
         print("Scraping {} Comments From Posts: {}\n".format(
             file_id, scrape_starttime))
 
-        with open('{}_facebook_statuses.csv'.format(file_id), 'r') as csvfile:
+        with open('{}_facebook_statuses_1.csv'.format(file_id), 'r') as csvfile:
             reader = csv.DictReader(csvfile)
 
             # Uncomment below line to scrape comments for a specific status_id
-            # reader = [dict(status_id='5550296508_10154352768246509')]
+            # reader = [dict(status_id='448444158902336_789472464799502')]
 
             for status in reader:
                 has_next_page = True
@@ -152,7 +166,8 @@ def scrapeFacebookPageFeedComments(page_id, access_token):
 
                     url = getFacebookCommentFeedUrl(base_url)
                     # print(url)
-                    comments = json.loads(request_until_succeed(url))
+                    # comments = json.loads(request_until_succeed_old(url))
+                    comments = request_until_succeed(url)
                     reactions = getReactionsForComments(base_url)
 
                     for comment in comments['data']:
@@ -177,8 +192,9 @@ def scrapeFacebookPageFeedComments(page_id, access_token):
 
                                 sub_url = getFacebookCommentFeedUrl(
                                     sub_base_url)
-                                sub_comments = json.loads(
-                                    request_until_succeed(sub_url))
+                                # sub_comments = json.loads(
+                                #     request_until_succeed_old(sub_url))
+                                sub_comments = request_until_succeed(sub_url)
                                 sub_reactions = getReactionsForComments(
                                     sub_base_url)
 
